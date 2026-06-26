@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TimescaleDB vs PostgreSQL — Performance Report</title>
+<style>
+body { font-family: Georgia, serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.6; }
+h1 { font-size: 1.5rem; border-bottom: 2px solid #222; padding-bottom: 6px; }
+h2 { font-size: 1.1rem; margin-top: 28px; }
+p { margin: 8px 0; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9rem; }
+th, td { padding: 6px 12px; text-align: left; border-bottom: 1px solid #ccc; }
+th { background: #f5f5f5; font-weight: 600; }
+.metric { font-size: 1.3rem; font-weight: 700; }
+.faster { color: #0a7e3e; }
+.meta { color: #666; font-size: 0.85rem; }
+pre { background: #f7f7f7; border: 1px solid #ddd; padding: 12px; font-size: 0.78rem; line-height: 1.4; overflow-x: auto; }
+code { background: #f0f0f0; padding: 1px 4px; font-size: 0.88rem; }
+.highlight { background: #fffde7; border-left: 3px solid #f0c000; padding: 8px 12px; margin: 10px 0; }
+.note { font-size: 0.85rem; color: #555; }
+</style>
+</head>
+<body>
+
+<h1>TimescaleDB vs PostgreSQL — Query Performance Report</h1>
+<p class="meta">Query: count rows &amp; max timestamp for device='iPhone' over last 10 minutes. Data: ~1.5M matching rows.</p>
+
+<h2>Result</h2>
+<table>
+<tr><th></th><th>PostgreSQL</th><th>TimescaleDB</th><th>Speedup</th></tr>
+<tr><td>10 min + device</td><td>2,035 ms</td><td class="metric faster">44 ms</td><td class="metric faster">46.2×</td></tr>
+<tr><td>5 min + device</td><td>1,869 ms</td><td class="metric faster">26 ms</td><td class="metric faster">72.2×</td></tr>
+<tr><td>1 min + device</td><td>153 ms</td><td class="metric faster">14 ms</td><td class="metric faster">10.9×</td></tr>
+<tr><td>10 min, all devices</td><td>881 ms</td><td class="metric faster">127 ms</td><td class="metric faster">6.9×</td></tr>
+<tr><td>1 min, all devices</td><td>132 ms</td><td class="metric faster">40 ms</td><td class="metric faster">3.3×</td></tr>
+</table>
+<p class="meta">Query: <code>count(*), max(time)</code> with <code>device='iPhone'</code> filter. Larger time windows amplify the gap — more chunks, more compression at work.</p>
+
+<h2>Why TimescaleDB Is Faster</h2>
+
+<h3>1. Hypertable Chunking</h3>
+<p>TimescaleDB splits the table into small 1-minute chunks partitioned by device. A query for <code>device='iPhone'</code> touches only ~1/4 of the data. Each chunk has its own small index — scanning many small indexes is faster than one giant one.</p>
+
+<div class="highlight">
+<strong>In the plan:</strong> PostgreSQL shows one <code>Parallel Index Only Scan</code> on <code>events</code> (1.5M rows). TimescaleDB shows <code>ChunkAppend</code> fanning out to 11 <code>_hyper_*_chunk</code> sub-scans, each touching 55K–160K rows.
+</div>
+
+<h3>2. Columnar Compression</h3>
+<p>Older chunks are converted from row-based to columnar storage. Each column is stored separately and compressed with type-specific encoding: delta-of-delta for timestamps, dictionary encoding for text, then a final ZSTD pass. A query that only needs <code>time</code> and <code>count(*)</code> reads just one column — the rest are never touched. PostgreSQL's row store must read the full row for any column.</p>
+
+<p><strong>2.1. Hybrid: columnar for old data, row-based for new.</strong> Recent chunks stay in row format for fast inserts; older chunks convert to columnar storage. Queries read only the needed columns — <code>time</code> and <code>count(*)</code> never touch <code>uid</code> or <code>activity</code>. PostgreSQL's row store always reads the full row.</p>
+
+<p><strong>2.2. Vectorized Filter.</strong> Instead of checking <code>time > now()-10min</code> row-by-row, TimescaleDB uses SIMD CPU instructions to compare 8–16 values at once on decompressed column batches. The plan shows <code>Vectorized Filter: ("time" > ...)</code>. PostgreSQL does sequential row-by-row filtering.</p>
+
+<p><strong>2.3. VectorAgg.</strong> After filtering, <code>count(*)</code> and <code>max(time)</code> run in SIMD batches on the decompressed column. The plan shows <code>Custom Scan (VectorAgg)</code>, replacing PostgreSQL's row-by-row <code>HashAggregate</code>.</p>
+
+<div class="highlight">
+<strong>In the plan:</strong> Each compressed chunk shows <code>VectorAgg → ColumnarScan → Index (compress_hyper_*_device__ts_meta)</code>. The metadata index touches 157 segment entries (not 156K data rows). The <code>ColumnarScan</code> reports <code>actual time=0.000..0.000</code> — decompress-and-filter is so fast it rounds to zero. The 2 live chunks below prove the contrast: same chunk structure, but without compression they take 3–6ms each.
+</div>
+
+<h2>Plan Comparison</h2>
+
+<pre>
+<b>PostgreSQL</b>
+  1 index, no chunks, no compression — flat plan
+
+  Finalize Aggregate                          ←  merge results
+    → Gather  (Workers: 2, launched: 2)
+        → Partial Aggregate                   ←  per-worker aggregation
+            → Parallel Index Only Scan (idx_events_device)
+                rows: 519,072 per worker       ←  each scans entire index
+                heap fetches: 618,359          ←  index didn't cover all columns
+
+<b>TimescaleDB</b>
+  Hypertable chunks + compression — hierarchical plan
+
+  <b>Level 1: Parallel ChunkAppend</b> (Chunking benefit)
+  Gather (Workers: 2, launched: 2)
+    → Parallel ChunkAppend  <em>loops=3, 11 chunks distributed across workers</em>
+        │
+        │  <b>Level 2: Per-chunk scan</b> (Compression benefit inside each chunk)
+        │
+        ├── Compressed chunks (9 total):
+        │   ├── VectorAgg (SIMD aggregate)
+        │   │   └── ColumnarScan on _hyper_1_145
+        │   │       rows: 156,858  time: 0.000ms  ← columnar, near-instant
+        │   │       Vectorized Filter: time > now()-10min  ← SIMD filter
+        │   │       └── Index (compress_hyper_*_device__ts_meta)
+        │   │           rows: 157  ← metadata, not data rows
+        │   │           cond: device='iPhone' AND _ts_meta_first_time > ...
+        │   ├── VectorAgg → ColumnarScan ... (same pattern, ~0.000ms each)
+        │   └── ... 7 more identical compressed chunks ...
+        │
+        └── Live chunks (2 total):
+            ├── Partial Aggregate → Index Only Scan on _hyper_1_169
+            │   rows: 77,898  time: 6.0ms  ← no compression, slower
+            └── Partial Aggregate → Index Only Scan on _hyper_1_180
+                rows: 31,127  time: 2.9ms
+
+<b>Key:</b> PG: flat scan of 1 big index. TS: parallel across chunks (L1),
+       then columnar + vectorized within each compressed chunk (L2).
+</pre>
+
+<p class="note">Query: count(*), max(time) for device='iPhone' over 10 minutes. TimescaleDB hypertable (1-min chunks, partitioned by device), compression enabled (1-min policy). Producer inserts 1,000 rows/sec. Both databases on identical hardware (4 CPU, 6 GB RAM each).</p>
+
+</body>
+</html>

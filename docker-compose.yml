@@ -1,0 +1,65 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${TIMESCALE_PORT_LOCAL}:${TIMESCALE_PORT_DOCKER}"
+    volumes:
+      - ./data/timescale_db:/var/lib/postgresql/data
+      - ./init-scripts/timescaledb.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "3"
+          memory: "6G"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${PG_PORT_LOCAL}:${PG_PORT_DOCKER}"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./init-scripts/postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "3"
+          memory: "6G"
+
+  producer:
+    image: python:3.12-slim
+    container_name: producer
+    restart: unless-stopped
+    command: >
+      sh -c "pip install -q -r /app/producer/requirements.txt && python /app/producer/producer.py"
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./producer:/app/producer
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy

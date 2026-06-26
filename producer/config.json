@@ -1,0 +1,8 @@
+{
+    "rows_per_batch": 50000,
+    "batch_interval_seconds": 1,
+    "devices": ["iPhone", "iPad", "Pixel", "Galaxy", "MacBook", "ThinkPad", "Surface", "OnePlus"],
+    "screens": ["home", "settings", "profile", "dashboard", "search", "notifications", "checkout", "help"],
+    "activities": ["click", "scroll", "swipe", "type", "tap", "longpress", "pinch", "drag"],
+    "uid_pool_size": 1000
+}

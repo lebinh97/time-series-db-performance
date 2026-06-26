@@ -1,6 +1,6 @@
 # TimescaleDB vs PostgreSQL — Query Performance Report
 
-Query: `count(*), max(time)` for `device='iPhone'` over last 10 minutes. Underlying data write 50k rows per second in both database.
+Query: `count(*), max(time)` for `device='iPhone'` over last 10 minutes. Underlying data write 50k rows per second in both database
 
 ## Result
 

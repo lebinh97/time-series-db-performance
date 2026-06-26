@@ -1,6 +1,6 @@
 # TimescaleDB vs PostgreSQL — Query Performance Report
 
-Query: `count(*), max(time)` for `device='iPhone'` over last 10 minutes. Data: ~1.5M matching rows.
+Query: `count(*), max(time)` for `device='iPhone'` over last 10 minutes. Data: ~1.5M matching rows
 
 ## Result
 

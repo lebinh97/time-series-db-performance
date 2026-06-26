@@ -1,6 +1,7 @@
 # TimescaleDB vs PostgreSQL — Query Performance Report
 
-Query: `count(*), max(time)` for `device='iPhone'` over last 10 minutes. Underlying data write 50k rows per second in both database
+Query: count(*), max(time) for device='iPhone' over last 10 minutes. 
+Underlying data write 50k rows per second in both database, so after about 20 minutes of running the docker container you would have about 60 million rows in each of these database.
 
 ## Result
 

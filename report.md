@@ -8,9 +8,9 @@ Rebase test 1.
 
 | Query | PostgreSQL | TimescaleDB | Speedup |
 |---|---|---|---|
-| 10 min + device | 2,035 ms | **44 ms** | **46.2×** |
-| 5 min + device | 1,869 ms | **26 ms** | **72.2×** |
-| 1 min + device | 153 ms | **14 ms** | **10.9×** |
+| 10 min + device filter | 2,035 ms | **44 ms** | **46.2×** |
+| 5 min + device filter | 1,869 ms | **26 ms** | **72.2×** |
+| 1 min + device filter | 153 ms | **14 ms** | **10.9×** |
 | 10 min, all devices | 881 ms | **127 ms** | **6.9×** |
 | 1 min, all devices | 132 ms | **40 ms** | **3.3×** |
 

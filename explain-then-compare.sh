@@ -1,4 +1,4 @@
-QUERY="SELECT date_trunc('minute', time) AS minute, activity, count(*) as cnt FROM events WHERE time > now() - INTERVAL '10 minute' AND device = 'iPhone' GROUP BY minute, activity ORDER BY minute, cnt DESC;"
+QUERY="SELECT activity, count(*) as cnt FROM events WHERE time > now() - INTERVAL '5 minute' AND device = 'iPhone' GROUP BY activity ORDER BY cnt DESC;"
 
 echo "========== PostgreSQL EXPLAIN =========="
 docker compose exec -T postgres     psql -U tsadmin -d tsdb -c "EXPLAIN ANALYZE $QUERY"

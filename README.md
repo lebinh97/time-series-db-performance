@@ -15,14 +15,13 @@ GROUP BY activity
 ORDER BY cnt DESC;
 ```
 
-With **60 million rows** in each database, TimescaleDB runs it **~20× faster** on average:
+With **28 million rows** in each database, TimescaleDB runs it **~21× faster** on average:
 
-| Query | PostgreSQL | TimescaleDB | Speedup |
-|---|---|---|---|
-| 10 min window + device filter | 2,035 ms | **44 ms** | **46.2×** |
-| 5 min window + device filter | 1,869 ms | **26 ms** | **72.2×** |
-| 1 min window + device filter | 153 ms | **14 ms** | **10.9×** |
-| 10 min window, all devices | 881 ms | **127 ms** | **6.9×** |
+| Query | Total rows | Rows scanned | PostgreSQL | TimescaleDB | Speedup |
+|---|---|---|---|---|---|
+| 5 min + device filter | 28M | ~1.4M | 2,774 ms | **60 ms** | **45.9×** |
+| 3 min + device filter | 28M | ~800K | 449 ms | **34 ms** | **13.1×** |
+| 1 min + device filter | 28M | ~300K | 161 ms | **32 ms** | **5.0×** |
 
 The gap widens as the time window grows — more chunks, more compression leverage.
 
